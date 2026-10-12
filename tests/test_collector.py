@@ -276,3 +276,20 @@ def test_simulated_pnl_estimate_joins_real_record(tmp_path, monkeypatch):
     assert h[-1]["date"] == "2026-10-12" and not h[-1].get("estimated") and h[-2].get("estimated")
     # 이어지는 지점에서 하루 수익률이 튀지 않는다
     assert abs(h[-1]["daily_ret"]) < 5
+
+
+def test_principal_keeps_base_date_until_amount_changes(tmp_path, monkeypatch):
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    monkeypatch.delenv("PRINCIPAL_DATE", raising=False)
+    monkeypatch.setenv("BACKFILL_DAYS", "5")
+    monkeypatch.setenv("PRINCIPAL", "20000000")
+    simulate(date(2026, 10, 12), date(2026, 10, 13), tmp_path)
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    assert state["principal"] == {"amount": 20_000_000, "date": "2026-10-12"}
+    monkeypatch.setenv("PRINCIPAL", "25,000,000")
+    simulate(date(2026, 10, 14), date(2026, 10, 14), tmp_path)
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    assert state["principal"] == {"amount": 25_000_000, "date": "2026-10-14"}
+    monkeypatch.setenv("PRINCIPAL", "")
+    simulate(date(2026, 10, 15), date(2026, 10, 15), tmp_path)
+    assert "principal" not in json.loads((tmp_path / "data.json").read_text("utf-8"))

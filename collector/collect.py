@@ -9,6 +9,9 @@
     BACKFILL_FROM                        거래내역·실현손익을 이 날짜(YYYY-MM-DD)부터 받는다.
                                          나중에 더 앞당기면 빈 구간을 한 번 더 받는다
     BACKFILL_DAYS                        BACKFILL_FROM 이 없을 때 첫 실행에서 며칠 거슬러 받을지 (기본 90)
+    PRINCIPAL                            원금(원). 정한 날을 기준으로 이후 입출금을 더하고 빼서
+                                         "원금 대비 수익률"을 낸다. 공개 로그에 남지 않게 Secret 으로 넣는다
+    PRINCIPAL_DATE                       원금 기준일(YYYY-MM-DD). 없으면 원금을 처음 정한 날
 
 조회 전용이다. 주문·환전 API 는 부르지 않으며 MERITZ_READ_ONLY 도 강제로 켠다.
 """
@@ -437,6 +440,16 @@ def run(require_password: bool = False) -> int:
 
     usd = next((c["fx_rate"] for c in snap["currencies"] if c["currency"] == "USD"), 0.0)
     history = m.compute_history(estimated + snaps, m.flows_by_date(txs, usd))
+
+    # 원금 — PRINCIPAL(원)을 정한 날을 기준일로 삼고, 그 뒤 입출금은 대시보드가 더하고 뺀다.
+    # 금액이 바뀌면 기준일도 새로 잡는다. PRINCIPAL_DATE 로 기준일을 직접 정할 수도 있다.
+    amount = m.num(os.getenv("PRINCIPAL"))
+    if amount > 0:
+        pr = state.get("principal") or {}
+        when = os.getenv("PRINCIPAL_DATE") or (pr.get("date") if pr.get("amount") == amount else None)
+        state["principal"] = {"amount": amount, "date": when or today.isoformat()}
+    elif "PRINCIPAL" in os.environ and not os.environ["PRINCIPAL"].strip():
+        state.pop("principal", None)
 
     state.update({
         "version": 1,

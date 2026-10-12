@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ.pop("DASHBOARD_PASSWORD", None)
 os.environ["BACKFILL_FROM"] = "2026-01-01"   # 1~8월은 추정, 9월부터 실제 기록
+os.environ["PRINCIPAL"] = "19000000"
+os.environ["PRINCIPAL_DATE"] = "2026-09-01"
 
 from tests.simulate import simulate  # noqa: E402
 

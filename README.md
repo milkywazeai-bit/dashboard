@@ -47,6 +47,10 @@
 | `MERITZ_APP_SECRET` | 발급받은 시크릿 |
 | `DASHBOARD_PASSWORD` | 대시보드를 열 때 쓸 비밀번호 (길게 정하세요) |
 
+선택: 원금 대비 수익률을 보려면 Secret `PRINCIPAL`(원금, 예: `20000000`)을 추가하세요. 처음 넣은 날이 기준일이 되고,
+그 뒤 입금은 원금에 더하고 출금은 뺍니다. 기준일을 직접 정하려면 Secret `PRINCIPAL_DATE`(`YYYY-MM-DD`)를 함께 넣습니다.
+Secret 으로 넣는 이유는 공개 저장소의 Actions 로그에 금액이 남지 않게 하려는 것입니다.
+
 선택: **Variables** 탭에 `BACKFILL_FROM`(거래 내역·실현손익을 받기 시작할 날, `YYYY-MM-DD`)을 넣으면 기본값 `2026-01-01` 대신 씁니다.
 
 `DASHBOARD_PASSWORD`가 없으면 수집이 중단됩니다. GitHub Pages는 저장소가 비공개여도 주소를 아는 누구나 열 수 있어서,

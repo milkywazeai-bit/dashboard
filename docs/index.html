@@ -147,12 +147,12 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
     <div class="grid two">
       <div class="card">
         <h2>총자산 추이</h2>
-        <div class="legend"><span><i style="background:var(--s1)"></i>총자산</span><span><i class="dash"></i>투입원금 (시작 금액 + 순입금)</span></div>
+        <div class="legend"><span><i style="background:var(--s1)"></i>총자산</span><span><i class="dash"></i>투입원금 (원금 ± 입출금)</span></div>
         <div class="chart"><canvas id="cAsset" aria-label="총자산 추이 차트" role="img"></canvas></div>
         <div class="sub hidden" id="estNote" style="margin-top:8px;font-size:12px"></div>
       </div>
       <div class="card">
-        <h2>누적 수익률 <span class="sub">(입출금 제외, 시간가중)</span></h2>
+        <h2 id="twrTitle">누적 수익률 <span class="sub">(입출금 제외, 시간가중)</span></h2>
         <div class="chart"><canvas id="cTwr" aria-label="누적 수익률 차트" role="img"></canvas></div>
       </div>
     </div>
@@ -340,9 +340,18 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
     const g0 = 1 + base.twr / 100, ret = ((1 + last.twr / 100) / g0 - 1) * 100;
     const pnlP = last.pnl_cum - base.pnl_cum;
     const label = { "1M": "1개월", "3M": "3개월", "6M": "6개월", YTD: "올해", ALL: "전체" }[range];
-    $("kTwrL").textContent = `${label} 수익률`;
-    $("kTwr").innerHTML = `<span class="${cls(ret)}">${pct(ret)}</span>`;
-    $("kTwrD").innerHTML = `<span class="${cls(pnlP)}">${signed(pnlP, won)}</span> <span class="muted">${base.date} 이후</span>`;
+    const PR = principalSeries(H);
+    if (PR) {
+      const p = PR[PR.length - 1], gain = last.total - p;
+      $("kTwrL").textContent = "원금 대비 수익률";
+      $("kTwr").innerHTML = `<span class="${cls(gain)}">${pct(gain / p * 100)}</span>`;
+      $("kTwrD").innerHTML = `<span class="${cls(gain)}">${signed(gain, won)}</span> <span class="muted">원금 ${short(p)}원 · ` +
+        `${label} 시간가중 ${pct(ret)}</span>`;
+    } else {
+      $("kTwrL").textContent = `${label} 수익률`;
+      $("kTwr").innerHTML = `<span class="${cls(ret)}">${pct(ret)}</span>`;
+      $("kTwrD").innerHTML = `<span class="${cls(pnlP)}">${signed(pnlP, won)}</span> <span class="muted">${base.date} 이후</span>`;
+    }
 
     const year = last.date.slice(0, 4);
     const dom = S.realized_ytd ? S.realized_ytd.pnl : (S.realized_domestic || []).filter((r) => r.date.startsWith(year)).reduce((a, r) => a + r.pnl, 0);
@@ -386,11 +395,23 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
     }
     $("estNote").classList.toggle("hidden", !note);
     $("estNote").innerHTML = note;
-    if (base.estimated) $("kTwrD").innerHTML += ' <span class="muted">· 추정 포함</span>';
+    if (base.estimated && !PR) $("kTwrD").innerHTML += ' <span class="muted">· 추정 포함</span>';
     drawCharts(view, base);
     renderAlloc();
     renderHoldings();
     renderTx();
+  }
+
+  // 원금: 정한 금액(기준일 기준)에 이후 입금은 더하고 출금은 뺀다. 기준일 이전은 그 사이 순입금을 거꾸로 뺀다.
+  function principalSeries(H) {
+    const P = S.principal;
+    if (!P || !P.amount) return null;
+    const out = H.map(() => null);
+    let acc = P.amount;
+    H.forEach((h, i) => { if (h.date > P.date) { acc += h.flow || 0; out[i] = acc; } });
+    acc = P.amount;
+    for (let i = H.length - 1; i >= 0; i--) if (H[i].date <= P.date) { out[i] = acc; acc -= H[i].flow || 0; }
+    return out;
   }
 
   function baseOptions(yFmt) {
@@ -422,9 +443,11 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
   function drawCharts(view, base) {
     if (!window.Chart) return;
     const labels = view.map((h) => h.date.slice(2).replace(/-/g, "."));
-    // 투입원금 = 기간 시작 총자산 + 이후 순입금
+    // 투입원금 = 정한 원금 ± 이후 입출금 (원금을 정하지 않았으면 기간 시작 총자산 + 이후 순입금)
+    const PRall = principalSeries(S.history), off = S.history.length - view.length;
     let principal = base.total;
-    const princ = view.map((h, i) => (i ? (principal += h.flow || 0) : principal));
+    const princ = PRall ? view.map((h, i) => PRall[off + i])
+      : view.map((h, i) => (i ? (principal += h.flow || 0) : principal));
     const s1 = css("--s1"), muted = css("--muted"), up = css("--up"), down = css("--down");
 
     const o1 = baseOptions((v) => short(v));
@@ -439,9 +462,12 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
     ] } });
 
     const g0 = 1 + base.twr / 100;
-    const twr = view.map((h) => ((1 + h.twr / 100) / g0 - 1) * 100);
+    const twr = PRall ? view.map((h, i) => (h.total / princ[i] - 1) * 100)
+      : view.map((h) => ((1 + h.twr / 100) / g0 - 1) * 100);
+    $("twrTitle").innerHTML = PRall ? "원금 대비 수익률 <span class=\"sub\">(입출금 반영)</span>"
+      : "누적 수익률 <span class=\"sub\">(입출금 제외, 시간가중)</span>";
     const o2 = baseOptions((v) => v.toFixed(1) + "%");
-    o2.plugins.tooltip.callbacks = { label: (c) => ` 누적 ${pct(c.parsed.y)}`,
+    o2.plugins.tooltip.callbacks = { label: (c) => ` ${PRall ? "원금 대비" : "누적"} ${pct(c.parsed.y)}`,
       title: (items) => items[0].label + (view[items[0].dataIndex].estimated ? " (추정)" : "") };
     chart("cTwr", { type: "line", options: o2, data: { labels, datasets: [{
       label: "누적 수익률", data: twr, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.2,

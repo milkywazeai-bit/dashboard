@@ -34,6 +34,8 @@ jobs:
           MERITZ_APP_KEY: ${{ secrets.MERITZ_APP_KEY }}
           MERITZ_APP_SECRET: ${{ secrets.MERITZ_APP_SECRET }}
           DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          PRINCIPAL: ${{ secrets.PRINCIPAL }}             # 원금(원). 공개 로그에 남지 않게 Secret 으로
+          PRINCIPAL_DATE: ${{ secrets.PRINCIPAL_DATE }}   # 원금 기준일(선택)
           BACKFILL_FROM: ${{ vars.BACKFILL_FROM || '2026-01-01' }}   # 거래내역·실현손익을 받기 시작할 날
         run: python -m collector.collect --require-password
       - name: 데이터 커밋
