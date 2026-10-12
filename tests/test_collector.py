@@ -88,3 +88,30 @@ def test_require_password_refuses_plaintext(tmp_path, monkeypatch):
     monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
     monkeypatch.setattr(collect, "load_dotenv", lambda: None)
     assert collect.run(require_password=True) == 2
+
+
+def test_backfill_from_fills_earlier_gap(tmp_path, monkeypatch):
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    monkeypatch.delenv("BACKFILL_FROM", raising=False)
+    monkeypatch.setenv("BACKFILL_DAYS", "10")
+    simulate(date(2026, 10, 12), date(2026, 10, 12), tmp_path)
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    assert min(t["date"] for t in state["transactions"]) >= "2026-10-02"
+    # 이전 버전 상태처럼 시작일 기록을 지운다
+    state.pop("tx_synced_from")
+    (tmp_path / "data.json").write_text(json.dumps(state), "utf-8")
+
+    monkeypatch.setenv("BACKFILL_FROM", "2026-01-01")
+    clients = simulate(date(2026, 10, 13), date(2026, 10, 13), tmp_path)
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    assert state["tx_synced_from"] == "2026-01-01"
+    assert min(t["date"] for t in state["transactions"]) < "2026-01-15"
+    assert any(r["date"] < "2026-02-01" for r in state["realized_domestic"])
+    keys = [(t["date"], t["srno"]) for t in state["transactions"]]
+    assert len(keys) == len(set(keys))
+    assert len(state["history"]) == 2
+
+    # 다음 날에는 과거 구간을 다시 받지 않는다
+    clients = simulate(date(2026, 10, 14), date(2026, 10, 14), tmp_path)
+    tx_days = [p["from"] for k, p in clients[-1].calls if k == "transactions"]
+    assert min(tx_days) >= "20261010"

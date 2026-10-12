@@ -6,7 +6,9 @@
 환경변수
     MERITZ_APP_KEY / MERITZ_APP_SECRET   포털에서 발급 (앱키에 계좌가 묶여 있다)
     DASHBOARD_PASSWORD                   있으면 데이터를 암호화해 docs/data.enc.json 에 쓴다
-    BACKFILL_DAYS                        첫 실행 때 거래내역을 며칠 거슬러 받을지 (기본 90)
+    BACKFILL_FROM                        거래내역·실현손익을 이 날짜(YYYY-MM-DD)부터 받는다.
+                                         나중에 더 앞당기면 빈 구간을 한 번 더 받는다
+    BACKFILL_DAYS                        BACKFILL_FROM 이 없을 때 첫 실행에서 며칠 거슬러 받을지 (기본 90)
 
 조회 전용이다. 주문·환전 API 는 부르지 않으며 MERITZ_READ_ONLY 도 강제로 켠다.
 """
@@ -134,21 +136,42 @@ class Collector:
             day += timedelta(days=1)
         return out, done
 
-    def realized_domestic(self, start: date, end: date) -> list[dict]:
+    def realized_domestic(self, start: date, end: date) -> list[dict] | None:
+        """국내 실현손익(일별). 한 달이라도 실패하면 None — 있던 자료를 빈 값으로 덮지 않도록."""
         rows = []
         for a, b in month_chunks(start, end):
             body = self.call("profit_loss", {"iqry_sta_date": m.ymd(a), "iqry_fin_date": m.ymd(b)},
                              f"국내 실현손익 {a:%Y-%m}")
+            if body is None:
+                return None
             rows += [m.norm_realized_day(r) for r in self.rows(body)]
         return rows
 
-    def realized_overseas(self, start: date, end: date) -> list[dict]:
+    def realized_overseas(self, start: date, end: date) -> list[dict] | None:
         rows = []
         for a, b in month_chunks(start, end):
             body = self.call("ovs_profit_loss", {"oder_sta_date": m.ymd(a), "oder_fin_date": m.ymd(b),
                                                  "ctcd": "000"}, f"해외 실현손익 {a:%Y-%m}")
+            if body is None:
+                return None
             rows += [m.norm_ovs_realized(r) for r in self.rows(body)]
         return rows
+
+    def sync_range(self, state: dict, start: date, end: date, realized_from: date | None = None) -> date | None:
+        """[start, end] 의 거래내역과 실현손익을 받아 state 에 갈아 끼운다.
+
+        거래내역을 끝까지 받은 마지막 날을 돌려준다(하나도 못 받으면 None).
+        실현손익은 realized_from(기본 start)부터 end 까지 받는다.
+        """
+        new_tx, done = self.transactions(start, end)
+        if done:
+            state["transactions"] = replace_range(state.get("transactions", []), new_tx, start, done)
+        rl = realized_from or start
+        for key, rows in (("realized_domestic", self.realized_domestic(rl, end)),
+                          ("realized_overseas", self.realized_overseas(rl, end))):
+            if rows is not None:
+                state[key] = replace_range(state.get(key, []), rows, rl, end)
+        return done
 
     def realized_summary(self, start: date, end: date) -> dict | None:
         body = self.call("profit_loss_summary", {"iqry_sta_date": m.ymd(start),
@@ -222,7 +245,8 @@ def run(require_password: bool = False) -> int:
     state = load_state(password)
     now = m.now_kst()
     today = now.date()
-    backfill = int(os.getenv("BACKFILL_DAYS") or 90)
+    backfill_from = (date.fromisoformat(os.environ["BACKFILL_FROM"]) if os.getenv("BACKFILL_FROM")
+                     else today - timedelta(days=int(os.getenv("BACKFILL_DAYS") or 90)))
     col = Collector()
 
     snap = col.snapshot()
@@ -230,24 +254,32 @@ def run(require_password: bool = False) -> int:
         print("자산평가 조회에 실패해 갱신을 중단합니다:\n  " + "\n  ".join(col.warnings), file=sys.stderr)
         return 1
 
-    # 거래내역 — 마지막으로 끝까지 받은 날 며칠 전부터 오늘까지
-    synced = state.get("tx_synced_until")
-    tx_start = (date.fromisoformat(synced) - timedelta(days=RESYNC_DAYS) if synced
-                else today - timedelta(days=backfill))
-    new_tx, done = col.transactions(tx_start, today)
+    # 거래내역·실현손익
+    #  · 처음 실행: BACKFILL_FROM(또는 BACKFILL_DAYS 일 전)부터 오늘까지
+    #  · 이후: 마지막으로 받은 날 며칠 전부터 오늘까지 (실현손익은 지난달 1일부터)
+    #  · BACKFILL_FROM 을 예전 날짜로 당기면 그 사이 빈 구간을 한 번 더 받는다
+    until, since = state.get("tx_synced_until"), state.get("tx_synced_from")
+    if until and not since:
+        # 이전 버전이 만든 상태 — 처음 받은 날을 기록하지 않았다. 가장 이른 거래일로 본다.
+        since = min((t["date"] for t in state.get("transactions", [])), default=until)
+    if not until:
+        done = col.sync_range(state, backfill_from, today)
+        if done:
+            state["tx_synced_from"], state["tx_synced_until"] = backfill_from.isoformat(), done.isoformat()
+    else:
+        if backfill_from.isoformat() < since:
+            gap_end = date.fromisoformat(since) - timedelta(days=1)
+            if col.sync_range(state, backfill_from, gap_end) == gap_end:
+                since = backfill_from.isoformat()
+            else:
+                col._warn(f"{backfill_from} 부터의 과거 내역을 다 받지 못했습니다. 다음 실행에서 다시 받습니다.")
+        state["tx_synced_from"] = since
+        start = date.fromisoformat(until) - timedelta(days=RESYNC_DAYS)
+        prev_month = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        done = col.sync_range(state, start, today, realized_from=min(start, prev_month))
+        if done:
+            state["tx_synced_until"] = done.isoformat()
     txs = state.get("transactions", [])
-    if done:
-        txs = replace_range(txs, new_tx, tx_start, done)
-        state["tx_synced_until"] = done.isoformat()
-
-    # 실현손익 — 첫 실행은 백필 기간 전부, 이후는 지난달 1일부터
-    rl_start = (today.replace(day=1) - timedelta(days=1)).replace(day=1) if synced else tx_start
-    dom = col.realized_domestic(rl_start, today)
-    ovs = col.realized_overseas(rl_start, today)
-    if not any("국내 실현손익 " in w for w in col.warnings):
-        state["realized_domestic"] = replace_range(state.get("realized_domestic", []), dom, rl_start, today)
-    if not any("해외 실현손익 " in w for w in col.warnings):
-        state["realized_overseas"] = replace_range(state.get("realized_overseas", []), ovs, rl_start, today)
 
     # 일별 스냅샷 — 같은 날 다시 돌리면 덮어쓴다
     v = snap["valuation"]

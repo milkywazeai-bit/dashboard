@@ -34,7 +34,7 @@ jobs:
           MERITZ_APP_KEY: ${{ secrets.MERITZ_APP_KEY }}
           MERITZ_APP_SECRET: ${{ secrets.MERITZ_APP_SECRET }}
           DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
-          BACKFILL_DAYS: ${{ vars.BACKFILL_DAYS || '90' }}
+          BACKFILL_FROM: ${{ vars.BACKFILL_FROM || '2026-01-01' }}   # 거래내역·실현손익을 받기 시작할 날
         run: python -m collector.collect --require-password
       - name: 데이터 커밋
         run: |
