@@ -412,7 +412,9 @@ def run(require_password: bool = False) -> int:
                     and all("frcr_balance" in t for t in txs))
         est = {"from": tx_from, "points": points, "check": diag, "complete": complete}
         state["estimate"] = est
-    estimated = [p for p in est.get("points", []) if p["date"] < first_real]
+    # 정확도 검사를 통과한 추정만 기록 앞에 붙인다. 틀린 추정은 수익률을 망가뜨린다.
+    est["used"] = m.estimate_usable(est.get("check"))
+    estimated = [p for p in est.get("points", []) if p["date"] < first_real] if est["used"] else []
 
     usd = next((c["fx_rate"] for c in snap["currencies"] if c["currency"] == "USD"), 0.0)
     history = m.compute_history(estimated + snaps, m.flows_by_date(txs, usd))

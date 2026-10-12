@@ -216,3 +216,26 @@ def test_transient_errors_are_retried_and_incomplete_estimate_rebuilt(tmp_path, 
     assert any(k == "fx_rates" for k, _ in clients[-1].calls)
     state = json.loads((tmp_path / "data.json").read_text("utf-8"))
     assert state["estimate"]["complete"] is True
+
+
+def test_inaccurate_estimate_is_not_used(tmp_path, monkeypatch):
+    assert m.estimate_usable({"error_pct": 1.2, "negative_qty": []})
+    assert not m.estimate_usable({"error_pct": 11.48, "negative_qty": []})
+    assert not m.estimate_usable({"error_pct": 0.1, "negative_qty": ["SOXL.AX"]})
+
+    # 잔고에 없는 매수 기록 + 모르는 유형의 행 → 진단에 유형별로 드러난다
+    txs = [_tx("2026-02-03", 1, "05", "SOXL.AX", 10, 20, foreign=True),
+           _tx("2026-03-03", 1, "99", "SOXL.AX", 4, 25, foreign=True)]
+    _, diag = m.estimate_history(txs, {"SOXL.AX": 6}, ["2026-02-02"], {}, {}, {}, 1400, 0)
+    assert diag["negative_qty"] == ["SOXL.AX"]
+    g = {x["type"]: x for x in diag["codes"][0]["groups"]}
+    assert g["05"]["counted"] and not g["99"]["counted"] and diag["codes"][0]["current_qty"] == 6
+
+    # 수집기: 정확도가 떨어지는 추정은 기록 앞에 붙이지 않는다
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    monkeypatch.setenv("BACKFILL_FROM", "2026-09-01")
+    monkeypatch.setattr(m, "ESTIMATE_MAX_ERROR_PCT", -1.0)
+    simulate(date(2026, 10, 12), date(2026, 10, 12), tmp_path)
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    assert state["estimate"]["points"] and state["estimate"]["used"] is False
+    assert not any(h.get("estimated") for h in state["history"])

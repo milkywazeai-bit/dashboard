@@ -322,7 +322,37 @@ def estimate_history(txs: list[dict], current_qty: dict[str, float], days: list[
         fx_cash = (usd.get(d, 0.0) if has_fx_rows else fx_cash_now) * rate
         points.append({"date": d, "total": krw[d] + stock + fx_cash, "stock": stock,
                        "cash": krw[d], "fx_cash": fx_cash, "estimated": True})
-    return points, {"negative_qty": sorted(bad), "unpriced": sorted(unpriced)}
+    return points, {"negative_qty": sorted(bad), "unpriced": sorted(unpriced),
+                    "codes": code_breakdown(txs, current_qty, bad)}
+
+
+def code_breakdown(txs: list[dict], current_qty: dict[str, float], codes) -> list[dict]:
+    """수량이 맞지 않는 종목의 거래를 유형·적요별로 묶는다. 어떤 거래 유형을 놓쳤는지 보려는 진단용."""
+    out = []
+    for c in sorted(codes):
+        groups: dict[tuple, dict] = {}
+        for t in txs:
+            if t["code"] != c:
+                continue
+            g = groups.setdefault((t["type"], t["name"], t["cancelled"]),
+                                  {"type": t["type"], "name": t["name"], "cancelled": t["cancelled"],
+                                   "count": 0, "qty": 0.0, "counted": qty_delta(t) != 0 or not t["qty"]})
+            g["count"] += 1
+            g["qty"] += t["qty"]
+        out.append({"code": c, "current_qty": current_qty.get(c, 0.0),
+                    "groups": sorted(groups.values(), key=lambda g: (g["type"], g["name"]))})
+    return out
+
+
+# 추정을 화면에 쓰는 기준. 오늘 값을 같은 방법으로 계산했을 때 이보다 많이 어긋나거나,
+# 거래내역으로 되짚은 수량이 음수가 된 종목이 있으면 추정은 쓰지 않는다.
+ESTIMATE_MAX_ERROR_PCT = 3.0
+
+
+def estimate_usable(check: dict | None) -> bool:
+    if not check or check.get("error_pct") is None:
+        return False
+    return abs(check["error_pct"]) <= ESTIMATE_MAX_ERROR_PCT and not check.get("negative_qty")
 
 
 def now_kst() -> datetime:

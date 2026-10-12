@@ -351,16 +351,29 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
     $("kRealD").innerHTML = `<span class="muted">국내 ${signed(dom, short)} · 해외 ${signed(ovs, short)}</span>`;
 
     const estPts = H.filter((h) => h.estimated);
-    const chk = (S.estimate || {}).check;
-    $("estNote").classList.toggle("hidden", !estPts.length);
+    const est = S.estimate || {}, chk = est.check;
+    let note = "";
+    const errTxt = chk && chk.error_pct != null ? `${Math.abs(chk.error_pct).toFixed(2)}%` : "";
     if (estPts.length) {
-      const lastEst = estPts[estPts.length - 1].date;
-      let t = `점선 구간(${estPts[0].date} ~ ${lastEst})은 거래내역의 수량·예수금과 일별 종가로 계산한 추정치입니다.`;
-      if (chk && chk.error_pct != null) t += ` 같은 방법으로 오늘을 계산하면 실제 총자산과 ${Math.abs(chk.error_pct).toFixed(2)}% 차이가 납니다.`;
-      if (chk && chk.negative_qty && chk.negative_qty.length) t += ` 거래내역과 잔고가 맞지 않는 종목: ${chk.negative_qty.join(", ")}.`;
-      if (chk && chk.unpriced && chk.unpriced.length) t += ` 시세가 없어 거래단가로 평가한 종목: ${chk.unpriced.join(", ")}.`;
-      $("estNote").textContent = t;
+      note = `점선 구간(${estPts[0].date} ~ ${estPts[estPts.length - 1].date})은 거래내역의 수량·예수금과 일별 종가로 계산한 추정치입니다.`;
+      if (errTxt) note += ` 같은 방법으로 오늘을 계산하면 실제 총자산과 ${errTxt} 차이가 납니다.`;
+      if (chk.unpriced && chk.unpriced.length) note += ` 시세가 없어 거래단가로 평가한 종목: ${chk.unpriced.join(", ")}.`;
+      note = esc(note);
+    } else if (chk) {
+      // 정확도 검사에서 떨어진 추정 — 그래프에 넣지 않고, 원인을 볼 수 있게 진단을 보인다
+      let why = errTxt ? `오늘 기준 실제 총자산과 ${errTxt} 차이` : "오늘 값과 비교할 수 없음";
+      if (chk.negative_qty && chk.negative_qty.length) why += `, 거래내역과 잔고가 맞지 않는 종목 ${chk.negative_qty.join(", ")}`;
+      note = esc(`실제 기록 이전 구간의 추정이 정확하지 않아(${why}) 그래프와 수익률에 넣지 않았습니다. 실제 기록은 ${H[0].date}부터 쌓입니다.`);
+      const codes = chk.codes || [];
+      if (codes.length) {
+        note += `<details style="margin-top:6px"><summary style="cursor:pointer;text-decoration:underline">추정 진단 보기</summary>` +
+          codes.map((c) => `<div style="margin-top:6px"><b>${esc(c.code)}</b> 현재 ${qty(c.current_qty)}주<ul style="margin:2px 0;padding-left:18px">` +
+            c.groups.map((g) => `<li>유형 ${esc(g.type || "-")} · ${esc(g.name || "-")}${g.cancelled ? " (취소)" : ""} — ${g.count}건, 수량 ${qty(g.qty)}${g.counted ? "" : " <b>· 수량 계산에서 빠짐</b>"}</li>`).join("") +
+            `</ul></div>`).join("") + `</details>`;
+      }
     }
+    $("estNote").classList.toggle("hidden", !note);
+    $("estNote").innerHTML = note;
     if (base.estimated) $("kTwrD").innerHTML += ' <span class="muted">· 추정 포함</span>';
     drawCharts(view, base);
     renderAlloc();
