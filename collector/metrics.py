@@ -108,6 +108,7 @@ def norm_tx(r: dict, day: str) -> dict:
         "io": (r.get("io_cls_code") or "").strip(),
         "cancelled": (r.get("cncl_yn") or "").strip() == "Y",
         "balance": num(r.get("tfam_nwrm")),
+        "frcr_balance": num(r.get("frcr_tfam_nwrm")),
     }
 
 
@@ -204,6 +205,124 @@ def period_return(history: list[dict], start_iso: str) -> float | None:
     base = before[-1] if before else history[0]
     g0, g1 = 1 + base["twr"] / 100, 1 + history[-1]["twr"] / 100
     return (g1 / g0 - 1) * 100 if g0 else None
+
+
+# ── 과거 총자산 추정 ──────────────────────────────────────────────
+#
+# API 에는 과거 일자의 총자산이 없다. 거래내역으로 그날의 보유 수량과 예수금을
+# 되짚고, 일봉 종가를 곱해 추정한다. 실제 스냅샷이 시작되기 전 구간에만 쓴다.
+
+QTY_UP = {"03", "05", "07", "09"}      # 입고·매수·조건부매수·조건부환매수
+QTY_DOWN = {"04", "06", "08", "10"}    # 출고·매도·조건부매도·조건부환매도
+# 잔액이 0 으로 내려와도 진짜 0 일 수 있는 거래(출금·매수). 그 밖의 0 은 '잔액 없음' 으로 본다.
+_ZERO_BALANCE_OK = {"02", "05"}
+
+
+def is_overseas_code(code: str) -> bool:
+    return "." in code                  # 해외는 "AAPL.OQ", 국내는 "A005930"
+
+
+def qty_delta(tx: dict) -> float:
+    if tx["cancelled"] or not tx["code"] or not tx["qty"]:
+        return 0.0
+    if tx["type"] in QTY_UP:
+        return tx["qty"]
+    if tx["type"] in QTY_DOWN:
+        return -tx["qty"]
+    return 0.0
+
+
+def positions_by_day(txs: list[dict], current: dict[str, float], days: list[str]):
+    """각 날짜 장 마감 기준 보유 수량. 현재 잔고에서 거래를 거꾸로 되돌려 구한다.
+
+    돌려주는 것: ({날짜: {종목: 수량}}, 수량이 음수가 된 종목 집합)
+    음수는 거래내역과 현재 잔고가 맞지 않는다는 뜻이라 0 으로 두고 알린다.
+    """
+    by_date: dict[str, list[dict]] = {}
+    for t in txs:
+        by_date.setdefault(t["date"], []).append(t)
+    pending = sorted(by_date, reverse=True)
+    qty, out, bad = dict(current), {}, set()
+    for d in sorted(days, reverse=True):
+        while pending and pending[0] > d:            # d 이후의 거래를 되돌린다
+            for t in by_date[pending.pop(0)]:
+                q = qty_delta(t)
+                if q:
+                    qty[t["code"]] = qty.get(t["code"], 0.0) - q
+        snap = {}
+        for c, q in qty.items():
+            if q < -1e-6:
+                bad.add(c)
+            elif q > 1e-9:
+                snap[c] = q
+        out[d] = snap
+    return out, bad
+
+
+def balances_by_day(txs: list[dict], days: list[str], foreign: bool) -> dict[str, float]:
+    """각 날짜 마지막 거래 직후의 예수금 잔액(원화 또는 외화). 첫 잔액 이전 날짜는 빠진다."""
+    rows = sorted((t for t in txs if t["foreign"] == foreign), key=lambda t: (t["date"], t["srno"]))
+    key = "frcr_balance" if foreign else "balance"
+    out, last, i = {}, None, 0
+    for d in sorted(days):
+        while i < len(rows) and rows[i]["date"] <= d:
+            t = rows[i]
+            i += 1
+            v = t.get(key, 0.0)
+            if v or t["type"] in _ZERO_BALANCE_OK:
+                last = v
+        if last is not None:
+            out[d] = last
+    return out
+
+
+def ffill(series: dict[str, float], d: str, strict: bool = False) -> float | None:
+    """d 이전(또는 같은 날)의 가장 최근 값."""
+    best = None
+    for k in sorted(series):
+        if k < d or (not strict and k == d):
+            best = series[k]
+        else:
+            break
+    return best
+
+
+def estimate_history(txs: list[dict], current_qty: dict[str, float], days: list[str],
+                     prices: dict[str, dict[str, float]], fx: dict[str, float],
+                     fallback_price: dict[str, float], fx_now: float, fx_cash_now: float):
+    """날짜별 추정 총자산. prices 는 종목별 {날짜: 종가}(해외는 현지통화), fx 는 {날짜: 원/달러}.
+
+    해외 종가는 현지 거래일 기준이라 한국 날짜 d 에는 d 전날까지의 종가를 쓴다.
+    시세를 못 받은 종목은 마지막 거래 단가(없으면 현재가)로 평가한다.
+    """
+    pos, bad = positions_by_day(txs, current_qty, days)
+    krw = balances_by_day(txs, days, foreign=False)
+    has_fx_rows = any(t["foreign"] for t in txs)
+    usd = balances_by_day(txs, days, foreign=True) if has_fx_rows else {}
+    trade_px: dict[str, dict[str, float]] = {}
+    for t in txs:
+        if t["code"] and t["price"] and not t["cancelled"]:
+            trade_px.setdefault(t["code"], {})[t["date"]] = t["price"]
+
+    points, unpriced = [], set()
+    for d in sorted(days):
+        if d not in krw:
+            continue                         # 첫 원화 잔액 이전은 추정할 수 없다
+        rate = ffill(fx, d) or fx_now
+        stock = 0.0
+        for c, q in pos[d].items():
+            ov = is_overseas_code(c)
+            px = ffill(prices.get(c, {}), d, strict=ov)
+            if px is None:
+                px = ffill(trade_px.get(c, {}), d) or fallback_price.get(c)
+                unpriced.add(c)
+            if px is None:
+                continue
+            stock += q * px * (rate if ov else 1)
+        fx_cash = (usd.get(d, 0.0) if has_fx_rows else fx_cash_now) * rate
+        points.append({"date": d, "total": krw[d] + stock + fx_cash, "stock": stock,
+                       "cash": krw[d], "fx_cash": fx_cash, "estimated": True})
+    return points, {"negative_qty": sorted(bad), "unpriced": sorted(unpriced)}
 
 
 def now_kst() -> datetime:

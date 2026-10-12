@@ -147,6 +147,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
         <h2>총자산 추이</h2>
         <div class="legend"><span><i style="background:var(--s1)"></i>총자산</span><span><i class="dash"></i>투입원금 (시작 금액 + 순입금)</span></div>
         <div class="chart"><canvas id="cAsset" aria-label="총자산 추이 차트" role="img"></canvas></div>
+        <div class="sub hidden" id="estNote" style="margin-top:8px;font-size:12px"></div>
       </div>
       <div class="card">
         <h2>누적 수익률 <span class="sub">(입출금 제외, 시간가중)</span></h2>
@@ -185,7 +186,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
     </div>
 
     <footer>메리츠증권 Open API 조회 결과를 정리한 개인용 화면입니다. 투자 판단의 근거로 쓰기 전에 증권사 앱의 값과 대조하세요.
-      수익률은 대시보드가 기록을 시작한 날부터 계산됩니다.</footer>
+      실제 기록이 시작되기 전 구간의 총자산과 수익률은 추정치입니다.</footer>
   </div>
 </main>
 
@@ -344,6 +345,18 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
     $("kReal").innerHTML = `<span class="${cls(dom + ovs)}">${signed(dom + ovs, won)}</span>`;
     $("kRealD").innerHTML = `<span class="muted">국내 ${signed(dom, short)} · 해외 ${signed(ovs, short)}</span>`;
 
+    const estPts = H.filter((h) => h.estimated);
+    const chk = (S.estimate || {}).check;
+    $("estNote").classList.toggle("hidden", !estPts.length);
+    if (estPts.length) {
+      const lastEst = estPts[estPts.length - 1].date;
+      let t = `점선 구간(${estPts[0].date} ~ ${lastEst})은 거래내역의 수량·예수금과 일별 종가로 계산한 추정치입니다.`;
+      if (chk && chk.error_pct != null) t += ` 같은 방법으로 오늘을 계산하면 실제 총자산과 ${Math.abs(chk.error_pct).toFixed(2)}% 차이가 납니다.`;
+      if (chk && chk.negative_qty && chk.negative_qty.length) t += ` 거래내역과 잔고가 맞지 않는 종목: ${chk.negative_qty.join(", ")}.`;
+      if (chk && chk.unpriced && chk.unpriced.length) t += ` 시세가 없어 거래단가로 평가한 종목: ${chk.unpriced.join(", ")}.`;
+      $("estNote").textContent = t;
+    }
+    if (base.estimated) $("kTwrD").innerHTML += ' <span class="muted">· 추정 포함</span>';
     drawCharts(view, base);
     renderAlloc();
     renderHoldings();
@@ -386,9 +399,11 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
 
     const o1 = baseOptions((v) => short(v));
     o1.plugins.tooltip.callbacks = { label: (c) => ` ${c.dataset.label}  ${won(c.parsed.y)}` };
+    const est = (ctx) => view[ctx.p1DataIndex] && view[ctx.p1DataIndex].estimated ? [5, 4] : undefined;
+    o1.plugins.tooltip.callbacks.title = (items) => items[0].label + (view[items[0].dataIndex].estimated ? " (추정)" : "");
     chart("cAsset", { type: "line", options: o1, data: { labels, datasets: [
       { label: "총자산", data: view.map((h) => h.total), borderColor: s1, backgroundColor: s1, borderWidth: 2,
-        pointRadius: 0, pointHoverRadius: 4, tension: 0.2 },
+        pointRadius: 0, pointHoverRadius: 4, tension: 0.2, segment: { borderDash: est } },
       { label: "투입원금", data: princ, borderColor: muted, backgroundColor: muted, borderWidth: 1.5,
         borderDash: [4, 3], pointRadius: 0, pointHoverRadius: 3, stepped: true },
     ] } });
@@ -396,11 +411,12 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
     const g0 = 1 + base.twr / 100;
     const twr = view.map((h) => ((1 + h.twr / 100) / g0 - 1) * 100);
     const o2 = baseOptions((v) => v.toFixed(1) + "%");
-    o2.plugins.tooltip.callbacks = { label: (c) => ` 누적 ${pct(c.parsed.y)}` };
+    o2.plugins.tooltip.callbacks = { label: (c) => ` 누적 ${pct(c.parsed.y)}`,
+      title: (items) => items[0].label + (view[items[0].dataIndex].estimated ? " (추정)" : "") };
     chart("cTwr", { type: "line", options: o2, data: { labels, datasets: [{
       label: "누적 수익률", data: twr, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.2,
       borderColor: s1, backgroundColor: s1,
-      segment: { borderColor: (ctx) => ctx.p1.parsed.y >= 0 ? up : down },
+      segment: { borderColor: (ctx) => ctx.p1.parsed.y >= 0 ? up : down, borderDash: est },
     }] } });
 
     // 월별 실현손익 — 기간 선택과 무관하게 최근 12개월

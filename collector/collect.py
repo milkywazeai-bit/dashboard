@@ -185,6 +185,85 @@ class Collector:
                 "fee": m.num(r.get("deal_fee")), "tax": m.num(r.get("wtax_amt")),
                 "pnl": m.num(r.get("prls_amt")), "ret": m.num(r.get("plrt"))}
 
+    # ── 과거 시세 (총자산 추정용) ──────────────────────────────────
+
+    def daily_closes(self, code: str, start: date, end: date) -> dict[str, float] | None:
+        """종목의 {YYYY-MM-DD: 종가}. 해외는 현지 거래일·현지통화 기준. 실패하면 None."""
+        out: dict[str, float] = {}
+        overseas = m.is_overseas_code(code)
+        for a, b in month_chunks(start, end):
+            if overseas:
+                sym, _, exch = code.rpartition(".")
+                body = self.call("ovs_market_candles_days",
+                                 {"mrkt_div_code": "OV", "mrkt_cls_code": exch, "iscd": sym,
+                                  "dely_rltm_cls_code": "1", "mod_stpr_cls_code": "0",
+                                  "from": m.ymd(a), "to": m.ymd(b)}, f"일봉 {code}")
+                field = "prpr"
+            else:
+                body = self.call("market_candles_days",
+                                 {"mrkt_div_code": "J", "iscd": code.lstrip("A")[-6:],
+                                  "from": m.ymd(a), "to": m.ymd(b)}, f"일봉 {code}")
+                field = "stck_clpr"
+            if body is None:
+                return None
+            for r in self.rows(body):
+                d, px = str(r.get("date") or ""), m.num(r.get(field))
+                if len(d) == 8 and px > 0:
+                    out[m.iso(d)] = px
+        return out
+
+    def usd_rates(self, days: list[str]) -> dict[str, float]:
+        """날짜별 원/달러 매매기준율. 고시가 없는 날은 빠진다."""
+        out = {}
+        for d in days:
+            body = self.call("fx_rates", {"stnd_date": d.replace("-", ""), "crcd": "USD"}, f"환율 {d}")
+            for r in self.rows(body):
+                v = m.num(r.get("deal_stnd_exrt")) or m.num(r.get("stnd_exrt"))
+                if v:
+                    out[d] = v
+        return out
+
+
+def build_estimate(col: Collector, txs: list[dict], snap: dict, start: date, end: date, today: date):
+    """start~end 영업일의 총자산을 거래내역과 종가로 추정한다. 오늘 값으로 오차도 잰다."""
+    days = [d.isoformat() for d in daterange(start, end) if d.weekday() < 5] + [today.isoformat()]
+    current = {}
+    for h in snap["holdings"]:
+        current[h["code"]] = current.get(h["code"], 0.0) + h["qty"]
+    pos, _ = m.positions_by_day(txs, current, days)
+    codes = sorted({c for p in pos.values() for c in p})
+
+    prices = {}
+    for c in codes:
+        series = col.daily_closes(c, start - timedelta(days=10), today)
+        if series:
+            prices[c] = series
+    usd = next((c["fx_rate"] for c in snap["currencies"] if c["currency"] == "USD"), 0.0)
+    needs_fx = any(m.is_overseas_code(c) for c in codes) or any(t["foreign"] for t in txs)
+    fx = col.usd_rates(days) if needs_fx else {}
+    fallback = {h["code"]: h["price"] for h in snap["holdings"]}
+
+    points, diag = m.estimate_history(txs, current, days, prices, fx, fallback, usd,
+                                      snap["valuation"]["fx_cash"] / usd if usd else 0.0)
+    check = next((p for p in points if p["date"] == today.isoformat()), None)
+    actual = snap["valuation"]["total"]
+    diag.update({
+        "from": start.isoformat(), "to": end.isoformat(),
+        "days": len(points) - (1 if check else 0),
+        "today_estimate": check["total"] if check else None,
+        "today_actual": actual,
+        "error_pct": ((check["total"] - actual) / actual * 100) if check and actual else None,
+        "cash_error": (check["cash"] - snap["valuation"]["cash"]) if check else None,
+    })
+    return [p for p in points if p["date"] != today.isoformat()], diag
+
+
+def daterange(start: date, end: date):
+    d = start
+    while d <= end:
+        yield d
+        d += timedelta(days=1)
+
 
 def month_chunks(start: date, end: date):
     a = start
@@ -279,6 +358,9 @@ def run(require_password: bool = False) -> int:
         done = col.sync_range(state, start, today, realized_from=min(start, prev_month))
         if done:
             state["tx_synced_until"] = done.isoformat()
+    if any("frcr_balance" not in t for t in state.get("transactions", [])) and state.get("tx_synced_from"):
+        # 이전 버전이 받은 내역에는 외화 잔액이 없다 — 추정에 필요해 한 번 다시 받는다
+        col.sync_range(state, date.fromisoformat(state["tx_synced_from"]), today)
     txs = state.get("transactions", [])
 
     # 일별 스냅샷 — 같은 날 다시 돌리면 덮어쓴다
@@ -287,9 +369,23 @@ def run(require_password: bool = False) -> int:
     point = {"date": today.isoformat(), "total": v["total"], "stock": v["stock"],
              "cash": v["cash"], "fx_cash": v["fx_cash"], "loan": v["loan"],
              "cost": v["cost"], "unrealized": unrealized}
-    snaps = [s for s in state.get("history", []) if s["date"] != point["date"]] + [point]
+    snaps = [s for s in state.get("history", [])
+             if s["date"] != point["date"] and not s.get("estimated")] + [point]
+
+    # 실제 기록이 시작되기 전 구간은 거래내역과 종가로 추정한다. 한 번 만들어 두고,
+    # 받아 둔 거래내역의 시작일이 바뀌었을 때만 다시 만든다.
+    first_real = min(s["date"] for s in snaps)
+    est = state.get("estimate") or {}
+    tx_from = min((t["date"] for t in txs), default=None)
+    if tx_from and tx_from < first_real and (est.get("from") != tx_from or os.getenv("REBUILD_ESTIMATE")):
+        points, diag = build_estimate(col, txs, snap, date.fromisoformat(tx_from),
+                                      date.fromisoformat(first_real) - timedelta(days=1), today)
+        est = {"from": tx_from, "points": points, "check": diag}
+        state["estimate"] = est
+    estimated = [p for p in est.get("points", []) if p["date"] < first_real]
+
     usd = next((c["fx_rate"] for c in snap["currencies"] if c["currency"] == "USD"), 0.0)
-    history = m.compute_history(snaps, m.flows_by_date(txs, usd))
+    history = m.compute_history(estimated + snaps, m.flows_by_date(txs, usd))
 
     state.update({
         "version": 1,
@@ -304,8 +400,9 @@ def run(require_password: bool = False) -> int:
         "warnings": col.warnings,
     })
     save_state(state, password)
-    print(f"{today} 총자산 {v['total']:,.0f}원 · 보유 {len(snap['holdings'])}종목 · "
-          f"거래내역 {len(txs)}건 · 스냅샷 {len(history)}일"
+    # Actions 로그는 공개 저장소에서 누구나 볼 수 있다 — 금액은 남기지 않는다
+    print(f"{today} 갱신 완료 · 보유 {len(snap['holdings'])}종목 · 거래내역 {len(txs)}건 · "
+          f"기록 {len(snaps)}일 + 추정 {len(estimated)}일"
           + (f" · 경고 {len(col.warnings)}건" if col.warnings else ""))
     for w in col.warnings:
         print(f"  ! {w}")

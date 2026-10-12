@@ -59,7 +59,7 @@ def test_simulated_runs_incremental(tmp_path, monkeypatch):
     state = json.loads((tmp_path / "data.json").read_text("utf-8"))
 
     weekdays = sum(1 for c in clients)
-    assert len(state["history"]) == weekdays
+    assert len([h for h in state["history"] if not h.get("estimated")]) == weekdays
     # 두 번째 실행부터는 마지막 동기화일 근처만 다시 받는다
     tx_days = [p["from"] for k, p in clients[-1].calls if k == "transactions"]
     assert len(tx_days) <= collect.RESYNC_DAYS + 4
@@ -81,7 +81,7 @@ def test_encrypted_state_and_plaintext_removed(tmp_path, monkeypatch):
     simulate(date(2026, 9, 28), date(2026, 9, 29), tmp_path, password="secret")
     assert not (tmp_path / "data.json").exists()
     env = json.loads((tmp_path / "data.enc.json").read_text("utf-8"))
-    assert len(decrypt(env, "secret")["history"]) == 2
+    assert len([h for h in decrypt(env, "secret")["history"] if not h.get("estimated")]) == 2
 
 
 def test_require_password_refuses_plaintext(tmp_path, monkeypatch):
@@ -109,9 +109,65 @@ def test_backfill_from_fills_earlier_gap(tmp_path, monkeypatch):
     assert any(r["date"] < "2026-02-01" for r in state["realized_domestic"])
     keys = [(t["date"], t["srno"]) for t in state["transactions"]]
     assert len(keys) == len(set(keys))
-    assert len(state["history"]) == 2
+    assert len([h for h in state["history"] if not h.get("estimated")]) == 2
+    # 거래내역 시작일이 앞당겨졌으니 추정 구간도 다시 만들어졌다
+    assert state["estimate"]["from"] < "2026-01-15"
 
     # 다음 날에는 과거 구간을 다시 받지 않는다
     clients = simulate(date(2026, 10, 14), date(2026, 10, 14), tmp_path)
     tx_days = [p["from"] for k, p in clients[-1].calls if k == "transactions"]
     assert min(tx_days) >= "20261010"
+
+
+def _tx(d, srno, type_, code="", qty=0.0, price=0.0, balance=0.0, foreign=False, frcr_balance=0.0):
+    return {"date": d, "srno": srno, "type": type_, "name": "", "code": code, "isnm": "", "qty": qty,
+            "price": price, "amount": 0.0, "frcr_amount": 0.0, "foreign": foreign, "fee": 0.0, "tax": 0.0,
+            "io": "", "cancelled": False, "balance": balance, "frcr_balance": frcr_balance}
+
+
+def test_estimate_history_rebuilds_positions_and_cash():
+    txs = [_tx("2026-01-02", 1, "01", balance=1_000_000),                         # 100만 입금
+           _tx("2026-01-05", 1, "05", "A005930", 10, 50_000, balance=500_000),    # 10주 매수
+           _tx("2026-01-07", 1, "06", "A005930", 4, 60_000, balance=740_000),     # 4주 매도
+           _tx("2026-01-07", 2, "05", "AAPL.OQ", 1, 200, foreign=True, frcr_balance=0)]
+    days = ["2026-01-01", "2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07"]
+    prices = {"A005930": {"2026-01-05": 50_000, "2026-01-06": 55_000, "2026-01-07": 60_000},
+              "AAPL.OQ": {"2026-01-06": 200, "2026-01-07": 210}}
+    fx = {"2026-01-07": 1400}
+    pts, diag = m.estimate_history(txs, {"A005930": 6, "AAPL.OQ": 1}, days, prices, fx, {}, 1400, 0)
+    by = {p["date"]: p for p in pts}
+    assert "2026-01-01" not in by                         # 첫 잔액 이전은 추정하지 않는다
+    assert by["2026-01-02"]["total"] == 1_000_000
+    assert by["2026-01-05"]["total"] == 500_000 + 10 * 50_000
+    assert by["2026-01-06"]["total"] == 500_000 + 10 * 55_000
+    # 해외 종가는 한국 날짜 기준 전날 것을 쓴다 (1/6 종가 200)
+    assert by["2026-01-07"]["total"] == 740_000 + 6 * 60_000 + 200 * 1400
+    assert diag["negative_qty"] == []
+
+
+def test_estimate_flags_inconsistent_holdings():
+    txs = [_tx("2026-01-05", 1, "05", "A000660", 5, 100, balance=10)]   # 잔고에 없는데 매수 기록만 있다
+    _, bad = m.positions_by_day(txs, {}, ["2026-01-02"])
+    assert bad == {"A000660"}
+
+
+def test_simulated_estimate_before_first_snapshot(tmp_path, monkeypatch):
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    monkeypatch.setenv("BACKFILL_FROM", "2026-06-01")
+    simulate(date(2026, 10, 12), date(2026, 10, 12), tmp_path)
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    est = [h for h in state["history"] if h.get("estimated")]
+    real = [h for h in state["history"] if not h.get("estimated")]
+    assert len(real) == 1 and real[0]["date"] == "2026-10-12"
+    assert est and est[0]["date"] <= "2026-06-05" and est[-1]["date"] == "2026-10-09"
+    chk = state["estimate"]["check"]
+    assert chk["negative_qty"] == [] and abs(chk["error_pct"]) < 3
+    # 입금(7/15)·출금(9/3)은 수익률에서 빠진다
+    by = {h["date"]: h for h in state["history"]}
+    assert by["2026-07-15"]["flow"] == 2_000_000 and abs(by["2026-07-15"]["daily_ret"]) < 5
+
+    # 다음 날은 추정을 다시 만들지 않는다
+    clients = simulate(date(2026, 10, 13), date(2026, 10, 13), tmp_path)
+    assert not any(k in ("market_candles_days", "fx_rates") for k, _ in clients[-1].calls)
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    assert [h["date"] for h in state["history"] if not h.get("estimated")] == ["2026-10-12", "2026-10-13"]

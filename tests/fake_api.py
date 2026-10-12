@@ -84,6 +84,9 @@ class FakeClient:
                  "ovrs_stck_vltn_amt": round(self._holdings(p)[2]["vltn_amt"])}]
 
     # ── 기간 조회 ──
+    def _cash_on(self, d: str) -> float:
+        return 3_500_000 + sum(v for k, v in self.deposits.items() if k <= d)
+
     def _transactions(self, p):
         d = p["from"]
         rows = []
@@ -92,7 +95,8 @@ class FakeClient:
             rows.append({"tran_srno": 1, "tr_type_code": "01" if amt > 0 else "02",
                          "smcd_name": "이체입금" if amt > 0 else "이체출금", "io_cls_code": "1" if amt > 0 else "2",
                          "if_fee_excl_amt": f"{abs(amt):,}", "cncl_yn": "N", "issu_type_code": "23",
-                         "frcr_tr_amt": "0.000", "tfam_nwrm": 0, "if_tr_qty": "0", "byng_unpr": "0"})
+                         "frcr_tr_amt": "0.000", "tfam_nwrm": self._cash_on(d), "frcr_tfam_nwrm": "0.000",
+                         "if_tr_qty": "0", "byng_unpr": "0"})
         dt = datetime.strptime(d, "%Y%m%d").date()
         if dt.weekday() == 2:                            # 수요일마다 삼성전자 매매
             buy = dt.isocalendar().week % 2 == 0
@@ -101,7 +105,7 @@ class FakeClient:
                          "iscd": "A005930", "kor_isnm": "삼성전자", "if_tr_qty": "5",
                          "byng_unpr": "71,200", "if_fee_excl_amt": "356,000", "deal_fee": 53,
                          "trtx": 0 if buy else 641, "cncl_yn": "N", "issu_type_code": "02",
-                         "frcr_tr_amt": "0.000", "tfam_nwrm": 3500000})
+                         "frcr_tr_amt": "0.000", "tfam_nwrm": self._cash_on(d), "frcr_tfam_nwrm": "0.000"})
         return rows
 
     def _profit_loss(self, p):
@@ -130,3 +134,26 @@ class FakeClient:
         return {"seln_amt": sum(r["seln_amt"] for r in rows), "byov_amt": 0,
                 "deal_fee": sum(r["deal_fee"] for r in rows), "wtax_amt": sum(r["wtax_amt"] for r in rows),
                 "prls_amt": sum(r["prls_amt"] for r in rows), "plrt": 1.2}
+
+    # ── 시세 ──
+    def _at(self, d: str) -> "FakeClient":
+        return FakeClient(datetime.strptime(d, "%Y%m%d").date(), self.deposits)
+
+    def _days(self, p):
+        a = datetime.strptime(p["from"], "%Y%m%d").date()
+        b = datetime.strptime(p["to"], "%Y%m%d").date()
+        return [date.fromordinal(a.toordinal() + n) for n in range((b - a).days + 1)
+                if date.fromordinal(a.toordinal() + n).weekday() < 5]
+
+    def _market_candles_days(self, p):
+        idx = {"005930": 0, "000660": 1}[p["iscd"]]
+        return [{"date": d.strftime("%Y%m%d"),
+                 "stck_clpr": str(round(FakeClient(d)._positions()[idx][5]))} for d in self._days(p)][::-1]
+
+    def _ovs_market_candles_days(self, p):
+        return [{"date": d.strftime("%Y%m%d"), "prpr": f"{FakeClient(d)._positions()[2][5]:.4f}"}
+                for d in self._days(p)][::-1]
+
+    def _fx_rates(self, p):
+        d = datetime.strptime(p["stnd_date"], "%Y%m%d").date()
+        return [{"crcd": "USD", "deal_stnd_exrt": f"{FakeClient(d)._positions()[2][7]:.4f}"}]
