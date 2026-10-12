@@ -17,13 +17,20 @@ def test_num_parses_api_strings():
 
 def test_flow_signs_and_exclusions():
     base = {"date": "2026-07-01", "name": "이체입금", "io": "1", "cancelled": False,
-            "foreign": False, "amount": 1000.0, "frcr_amount": 0.0}
+            "foreign": False, "amount": 1000.0, "frcr_amount": 0.0, "code": ""}
     assert m.tx_flow({**base, "type": "01"}) == 1000
     assert m.tx_flow({**base, "type": "02"}) == -1000
     assert m.tx_flow({**base, "type": "05"}) == 0                     # 매수는 원금 변동이 아니다
     assert m.tx_flow({**base, "type": "01", "cancelled": True}) == 0
     assert m.tx_flow({**base, "type": "02", "name": "환전출금"}) == 0
-    assert m.tx_flow({**base, "type": "01", "foreign": True, "frcr_amount": 10.0}, 1400) == 14000
+    # 원금에는 순수 원화 입출금만 — 외화 입금, 종목이 붙은 입금(배당 등)은 뺀다
+    assert m.tx_flow({**base, "type": "01", "foreign": True, "frcr_amount": 10.0}, 1400) == 0
+    assert m.tx_flow({**base, "type": "01", "code": "SOXL.AX"}) == 0
+    # 예탁금이용료·이자 등은 입금 유형이어도 원금이 아니다
+    assert m.tx_flow({**base, "type": "01", "name": "예탁금이용료"}) == 0
+    assert m.tx_flow({**base, "type": "01", "name": "CMA이자입금"}) == 0
+    assert m.tx_flow({**base, "type": "01", "issu_type": "99"}) == 0
+    assert m.tx_flow({**base, "type": "01", "name": "이체입금", "issu_type": "23"}) == 1000
 
 
 def test_twr_ignores_deposits():

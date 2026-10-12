@@ -544,7 +544,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
       rows.map((t) => {
         const amt = t.foreign ? `${(+t.frcr_amount).toLocaleString("en-US", { maximumFractionDigits: 2 })} (외화)` : won(t.amount);
         const inflow = t.io === "1";
-        return `<tr><td>${t.date}</td><td>${esc(t.name)}${t.cancelled ? '<span class="tag">취소</span>' : ""}</td>
+        return `<tr><td>${t.date}</td><td>${esc(t.name)}${t.cancelled ? '<span class="tag">취소</span>' : ""}${t.flow ? '<span class="tag">원금 반영</span>' : ""}</td>
           <td>${esc(t.isnm || "")}</td><td class="n">${t.qty ? qty(t.qty) : ""}</td>
           <td class="n">${t.price ? price(t.price, t.foreign ? "FX" : "KRW").replace(" FX", "") : ""}</td>
           <td class="n">${t.amount || t.frcr_amount ? (inflow ? "+" : t.io === "2" ? "−" : "") + amt : ""}</td>

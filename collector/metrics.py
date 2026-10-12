@@ -7,9 +7,12 @@ from datetime import date, datetime
 # 이 금액은 수익이 아니라 원금 변동이라 수익률 계산에서 빼야 한다.
 DEPOSIT_TYPES = {"01"}      # 입금
 WITHDRAW_TYPES = {"02"}     # 출금
-# 환전은 원화 출금 + 외화 입금 두 행으로 내려와 서로 상쇄된다. 한쪽만 환산 오차가
-# 생기지 않도록 둘 다 원금 변동에서 뺀다.
-_FLOW_EXCLUDE_WORDS = ("환전",)
+# 원금에서 빼는 입출금. 입금 유형(01)으로 내려와도 계좌 밖에서 넣은 돈이 아니라
+# 수익(예탁금이용료·이자·배당 등)이거나 계좌 안의 이동(환전)인 것들이다.
+_FLOW_EXCLUDE_WORDS = ("환전", "이용료", "이자", "배당", "분배", "환급", "수익", "리워드",
+                       "이벤트", "포인트", "캐시백", "정산")
+# 종목유형코드 99(기타)는 예탁금이용료 등이 내려오는 자리다
+_FLOW_EXCLUDE_ISSU_TYPES = {"99"}
 
 
 def num(v) -> float:
@@ -109,20 +112,25 @@ def norm_tx(r: dict, day: str) -> dict:
         "cancelled": (r.get("cncl_yn") or "").strip() == "Y",
         "balance": num(r.get("tfam_nwrm")),
         "frcr_balance": num(r.get("frcr_tfam_nwrm")),
+        "issu_type": (r.get("issu_type_code") or "").strip(),
     }
 
 
 def tx_flow(tx: dict, fx_rate: float = 0.0) -> float:
-    """거래 한 건이 원금을 얼마나 바꿨는가(원). 입금 +, 출금 −, 그 밖은 0."""
-    if tx["cancelled"] or tx["io"] == "3":
+    """거래 한 건이 원금을 얼마나 바꿨는가(원). 원화 입금 +, 원화 출금 −, 그 밖은 0.
+
+    원금에는 계좌 밖과 오간 순수 원화 현금만 넣는다. 외화가 걸린 입출금(외화 입금·
+    해외 배당 등)과 종목이 붙은 입출금(배당·권리 등)은 수익이거나 계좌 안의 이동이라 뺀다.
+    fx_rate 는 예전 호출과의 호환을 위해 남겨 둔다.
+    """
+    if tx["cancelled"] or tx["io"] == "3" or tx["foreign"] or tx["code"]:
+        return 0.0
+    if tx.get("issu_type") in _FLOW_EXCLUDE_ISSU_TYPES:
         return 0.0
     if any(w in tx["name"] for w in _FLOW_EXCLUDE_WORDS):
         return 0.0
     sign = 1 if tx["type"] in DEPOSIT_TYPES else -1 if tx["type"] in WITHDRAW_TYPES else 0
-    if not sign:
-        return 0.0
-    amt = tx["amount"] if not tx["foreign"] else tx["frcr_amount"] * fx_rate
-    return sign * abs(amt)
+    return sign * abs(tx["amount"]) if sign else 0.0
 
 
 def norm_realized_day(r: dict) -> dict:

@@ -39,7 +39,7 @@ ENC = ROOT / "docs" / "data.enc.json"
 # 늦게 반영되는 거래(정정·취소 등)를 잡기 위해 마지막 동기화일 며칠 전부터 다시 받는다
 RESYNC_DAYS = 3
 # 추정 계산 방식이 바뀌면 올린다 — 저장된 추정을 다음 실행에서 다시 만든다
-ESTIMATE_VERSION = 3
+ESTIMATE_VERSION = 4
 
 log = logging.getLogger("collector")
 
@@ -460,7 +460,8 @@ def run(require_password: bool = False) -> int:
         "currencies": snap["currencies"],
         "realized_ytd": col.realized_summary(today.replace(month=1, day=1), today),
         "history": history,
-        "transactions": txs,
+        # 원금에 반영된 금액을 행마다 남긴다 — 대시보드가 어떤 행이 원금에 들어갔는지 보여 준다
+        "transactions": [{**t, "flow": m.tx_flow(t)} for t in txs],
         "warnings": col.warnings,
     })
     save_state(state, password)

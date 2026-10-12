@@ -17,7 +17,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-01-14",
@@ -36,7 +38,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-01-21",
@@ -55,7 +59,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-01-28",
@@ -74,7 +80,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-02-04",
@@ -93,7 +101,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-02-11",
@@ -112,7 +122,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-02-18",
@@ -131,7 +143,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-02-25",
@@ -150,7 +164,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-03-04",
@@ -169,7 +185,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-03-11",
@@ -188,7 +206,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-03-18",
@@ -207,7 +227,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-03-25",
@@ -226,7 +248,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-04-01",
@@ -245,7 +269,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-04-08",
@@ -264,7 +290,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-04-15",
@@ -283,7 +311,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-04-22",
@@ -302,7 +332,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-04-29",
@@ -321,7 +353,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-05-06",
@@ -340,7 +374,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-05-13",
@@ -359,7 +395,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-05-20",
@@ -378,7 +416,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-05-27",
@@ -397,7 +437,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-06-03",
@@ -416,7 +458,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-06-10",
@@ -435,7 +479,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-06-17",
@@ -454,7 +500,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-06-24",
@@ -473,7 +521,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-07-01",
@@ -492,7 +542,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-07-08",
@@ -511,7 +563,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 3500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-07-15",
@@ -530,7 +584,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 5500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "23",
+   "flow": 2000000.0
   },
   {
    "date": "2026-07-15",
@@ -549,7 +605,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 5500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-07-22",
@@ -568,7 +626,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 5500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-07-29",
@@ -587,7 +647,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 5500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-08-05",
@@ -606,7 +668,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 5500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-08-12",
@@ -625,7 +689,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 5500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-08-19",
@@ -644,7 +710,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 5500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-08-26",
@@ -663,7 +731,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 5500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-09-02",
@@ -682,7 +752,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 5500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-09-03",
@@ -701,7 +773,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 4500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "23",
+   "flow": -1000000.0
   },
   {
    "date": "2026-09-09",
@@ -720,7 +794,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 4500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-09-16",
@@ -739,7 +815,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 4500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-09-23",
@@ -758,7 +836,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 4500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-09-30",
@@ -777,7 +857,9 @@
    "io": "2",
    "cancelled": false,
    "balance": 4500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   },
   {
    "date": "2026-10-07",
@@ -796,7 +878,9 @@
    "io": "1",
    "cancelled": false,
    "balance": 4500000.0,
-   "frcr_balance": 0.0
+   "frcr_balance": 0.0,
+   "issu_type": "02",
+   "flow": 0.0
   }
  ],
  "realized_domestic": [
@@ -1876,7 +1960,7 @@
    "min_total": 18097276.68878131
   },
   "complete": true,
-  "version": 3,
+  "version": 4,
   "used": true
  },
  "principal": {
