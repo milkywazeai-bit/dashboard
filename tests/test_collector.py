@@ -239,3 +239,18 @@ def test_inaccurate_estimate_is_not_used(tmp_path, monkeypatch):
     state = json.loads((tmp_path / "data.json").read_text("utf-8"))
     assert state["estimate"]["points"] and state["estimate"]["used"] is False
     assert not any(h.get("estimated") for h in state["history"])
+
+
+def test_settlement_rows_and_exchange_balance():
+    # 한 체결이 "해외주식매수" + "해외주식매수대금" 두 행으로 온다 — 수량은 한 번만 센다
+    txs = [_tx("2026-02-03", 1, "05", "SOXL.AX", 10, 20, foreign=True, frcr_balance=800),
+           {**_tx("2026-02-03", 2, "05", "SOXL.AX", 10, 20, foreign=True, frcr_balance=800),
+            "name": "해외주식매수대금"},
+           # 환전: 외화 행이지만 원화 잔액이 담겨 온다 (원화 300만 → 0, 달러 +2000)
+           _tx("2026-02-02", 1, "01", balance=3_000_000),
+           _tx("2026-02-02", 2, "99", balance=0.5, foreign=True, frcr_balance=1000)]
+    txs[0]["name"] = "해외주식매수"
+    pos, bad = m.positions_by_day(txs, {"SOXL.AX": 10}, ["2026-02-02", "2026-02-03"])
+    assert not bad and pos["2026-02-02"] == {} and pos["2026-02-03"] == {"SOXL.AX": 10}
+    krw = m.balances_by_day(txs, ["2026-02-02"], foreign=False)
+    assert krw["2026-02-02"] == 0.5          # 환전 행의 원화 잔액을 쓴다

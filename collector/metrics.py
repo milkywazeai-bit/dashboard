@@ -225,6 +225,10 @@ def is_overseas_code(code: str) -> bool:
 def qty_delta(tx: dict) -> float:
     if tx["cancelled"] or not tx["code"] or not tx["qty"]:
         return 0.0
+    # 해외주식은 한 체결이 "해외주식매수" + "해외주식매수대금" 두 행으로 내려온다(수량도 같다).
+    # "~대금" 행은 돈이 오간 기록이라 수량으로 세면 매수·매도가 두 배가 된다.
+    if tx["name"].replace(" ", "").endswith("대금"):
+        return 0.0
     if tx["type"] in QTY_UP:
         return tx["qty"]
     if tx["type"] in QTY_DOWN:
@@ -260,16 +264,25 @@ def positions_by_day(txs: list[dict], current: dict[str, float], days: list[str]
 
 
 def balances_by_day(txs: list[dict], days: list[str], foreign: bool) -> dict[str, float]:
-    """각 날짜 마지막 거래 직후의 예수금 잔액(원화 또는 외화). 첫 잔액 이전 날짜는 빠진다."""
-    rows = sorted((t for t in txs if t["foreign"] == foreign), key=lambda t: (t["date"], t["srno"]))
+    """각 날짜 마지막 거래 직후의 예수금 잔액(원화 또는 외화). 첫 잔액 이전 날짜는 빠진다.
+
+    원화 잔액은 외화가 걸린 행(환전 등)에도 담겨 온다 — 그 행을 빼면 환전으로 빠져나간
+    원화가 잔액에 남아 총자산이 부풀려진다. 그래서 외화 여부와 무관하게 잔액이 있는 행을 쓴다.
+    해외 매매 행은 원화 잔액이 0 으로 내려오므로(문서) 0 은 '잔액 없음' 으로 본다.
+    외화 잔액도 0 은 '잔액 없음' 으로 본다.
+    """
     key = "frcr_balance" if foreign else "balance"
+    rows = sorted(txs, key=lambda t: (t["date"], t["srno"]))
     out, last, i = {}, None, 0
     for d in sorted(days):
         while i < len(rows) and rows[i]["date"] <= d:
             t = rows[i]
             i += 1
             v = t.get(key, 0.0)
-            if v or t["type"] in _ZERO_BALANCE_OK:
+            if foreign:
+                if t["foreign"] and v:
+                    last = v
+            elif v or (not t["foreign"] and t["type"] in _ZERO_BALANCE_OK):
                 last = v
         if last is not None:
             out[d] = last

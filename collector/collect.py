@@ -35,6 +35,8 @@ PLAIN = ROOT / "docs" / "data.json"
 ENC = ROOT / "docs" / "data.enc.json"
 # 늦게 반영되는 거래(정정·취소 등)를 잡기 위해 마지막 동기화일 며칠 전부터 다시 받는다
 RESYNC_DAYS = 3
+# 추정 계산 방식이 바뀌면 올린다 — 저장된 추정을 다음 실행에서 다시 만든다
+ESTIMATE_VERSION = 2
 
 log = logging.getLogger("collector")
 
@@ -279,6 +281,9 @@ def build_estimate(col: Collector, txs: list[dict], snap: dict, start: date, end
         "today_actual": actual,
         "error_pct": ((check["total"] - actual) / actual * 100) if check and actual else None,
         "cash_error": (check["cash"] - snap["valuation"]["cash"]) if check else None,
+        # 오늘 값을 항목별로 맞춰 본다 — 어느 쪽이 어긋나는지 보려는 진단용
+        "parts": {k: {"estimate": check[k] if check else None, "actual": snap["valuation"][k]}
+                  for k in ("cash", "fx_cash", "stock")},
     })
     return [p for p in points if p["date"] != today.isoformat()], diag
 
@@ -404,13 +409,15 @@ def run(require_password: bool = False) -> int:
     est = state.get("estimate") or {}
     tx_from = min((t["date"] for t in txs), default=None)
     if tx_from and tx_from < first_real and (est.get("from") != tx_from or not est.get("complete")
+                                             or est.get("version") != ESTIMATE_VERSION
                                              or os.getenv("REBUILD_ESTIMATE")):
         points, diag = build_estimate(col, txs, snap, date.fromisoformat(tx_from),
                                       date.fromisoformat(first_real) - timedelta(days=1), today)
         # 조회가 하나라도 실패했거나 외화 잔액이 빠진 거래가 남았으면 다음 실행에서 다시 만든다
         complete = (len(col.warnings) == warns_before
                     and all("frcr_balance" in t for t in txs))
-        est = {"from": tx_from, "points": points, "check": diag, "complete": complete}
+        est = {"from": tx_from, "points": points, "check": diag, "complete": complete,
+               "version": ESTIMATE_VERSION}
         state["estimate"] = est
     # 정확도 검사를 통과한 추정만 기록 앞에 붙인다. 틀린 추정은 수익률을 망가뜨린다.
     est["used"] = m.estimate_usable(est.get("check"))

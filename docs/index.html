@@ -364,13 +364,18 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
       let why = errTxt ? `오늘 기준 실제 총자산과 ${errTxt} 차이` : "오늘 값과 비교할 수 없음";
       if (chk.negative_qty && chk.negative_qty.length) why += `, 거래내역과 잔고가 맞지 않는 종목 ${chk.negative_qty.join(", ")}`;
       note = esc(`실제 기록 이전 구간의 추정이 정확하지 않아(${why}) 그래프와 수익률에 넣지 않았습니다. 실제 기록은 ${H[0].date}부터 쌓입니다.`);
-      const codes = chk.codes || [];
-      if (codes.length) {
-        note += `<details style="margin-top:6px"><summary style="cursor:pointer;text-decoration:underline">추정 진단 보기</summary>` +
-          codes.map((c) => `<div style="margin-top:6px"><b>${esc(c.code)}</b> 현재 ${qty(c.current_qty)}주<ul style="margin:2px 0;padding-left:18px">` +
-            c.groups.map((g) => `<li>유형 ${esc(g.type || "-")} · ${esc(g.name || "-")}${g.cancelled ? " (취소)" : ""} — ${g.count}건, 수량 ${qty(g.qty)}${g.counted ? "" : " <b>· 수량 계산에서 빠짐</b>"}</li>`).join("") +
-            `</ul></div>`).join("") + `</details>`;
+    }
+    if (chk && (chk.parts || (chk.codes || []).length)) {
+      const names = { cash: "원화 예수금", fx_cash: "외화 예수금(원화 환산)", stock: "주식 평가금액" };
+      let d = `<details style="margin-top:6px"><summary style="cursor:pointer;text-decoration:underline">추정 진단 보기</summary>`;
+      if (chk.parts) {
+        d += `<div style="margin-top:6px">오늘 값 비교 (추정 / 실제)</div><ul style="margin:2px 0;padding-left:18px">` +
+          Object.entries(chk.parts).map(([k, v]) => `<li>${names[k] || k}: ${v.estimate == null ? "–" : won(v.estimate)} / ${won(v.actual)}</li>`).join("") + "</ul>";
       }
+      d += (chk.codes || []).map((c) => `<div style="margin-top:6px"><b>${esc(c.code)}</b> 현재 ${qty(c.current_qty)}주<ul style="margin:2px 0;padding-left:18px">` +
+        c.groups.map((g) => `<li>유형 ${esc(g.type || "-")} · ${esc(g.name || "-")}${g.cancelled ? " (취소)" : ""} — ${g.count}건, 수량 ${qty(g.qty)}${g.counted ? "" : " <b>· 수량 계산에서 빠짐</b>"}</li>`).join("") +
+        `</ul></div>`).join("");
+      note += d + "</details>";
     }
     $("estNote").classList.toggle("hidden", !note);
     $("estNote").innerHTML = note;
