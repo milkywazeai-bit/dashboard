@@ -231,14 +231,10 @@ def test_inaccurate_estimate_is_not_used(tmp_path, monkeypatch):
     g = {x["type"]: x for x in diag["codes"][0]["groups"]}
     assert g["05"]["counted"] and not g["99"]["counted"] and diag["codes"][0]["current_qty"] == 6
 
-    # 수집기: 정확도가 떨어지는 추정은 기록 앞에 붙이지 않는다
-    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
-    monkeypatch.setenv("BACKFILL_FROM", "2026-09-01")
-    monkeypatch.setattr(m, "ESTIMATE_MAX_ERROR_PCT", -1.0)
-    simulate(date(2026, 10, 12), date(2026, 10, 12), tmp_path)
-    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
-    assert state["estimate"]["points"] and state["estimate"]["used"] is False
-    assert not any(h.get("estimated") for h in state["history"])
+    # 손익 역산 방식은 수량이 맞고 총자산이 양수일 때만 쓴다
+    assert m.estimate_usable({"method": "pnl", "negative_qty": [], "min_total": 10.0})
+    assert not m.estimate_usable({"method": "pnl", "negative_qty": ["SOXL.AX"], "min_total": 10.0})
+    assert not m.estimate_usable({"method": "pnl", "negative_qty": [], "min_total": -5.0})
 
 
 def test_settlement_rows_and_exchange_balance():
@@ -254,3 +250,29 @@ def test_settlement_rows_and_exchange_balance():
     assert not bad and pos["2026-02-02"] == {} and pos["2026-02-03"] == {"SOXL.AX": 10}
     krw = m.balances_by_day(txs, ["2026-02-02"], foreign=False)
     assert krw["2026-02-02"] == 0.5          # 환전 행의 원화 잔액을 쓴다
+
+
+def test_estimate_by_pnl_walks_back_from_anchor():
+    # 1/5 10주 매수(체결가 100), 1/6 입금 50만, 종가 1/5 110 → 1/6 120 → 1/7 115
+    txs = [_tx("2026-01-05", 1, "05", "A005930", 10, 100, balance=1),
+           {**_tx("2026-01-06", 1, "01", balance=1), "amount": 500_000.0}]
+    prices = {"A005930": {"2026-01-05": 110, "2026-01-06": 120, "2026-01-07": 115}}
+    days = ["2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07"]
+    pts, diag = m.estimate_by_pnl(txs, {"A005930": 10}, days, prices, {}, 0, "2026-01-07", 1_000_000)
+    by = {p["date"]: p["total"] for p in pts}
+    assert by["2026-01-06"] == 1_000_000 - 10 * (115 - 120)               # 1/7 손익 −50
+    assert by["2026-01-05"] == by["2026-01-06"] - 10 * (120 - 110) - 500_000  # 1/6 손익 +100, 입금 50만
+    assert by["2026-01-02"] == by["2026-01-05"] - 10 * (110 - 100)          # 1/5 체결가 대비 +100
+    assert diag["negative_qty"] == [] and diag["min_total"] > 0
+
+
+def test_simulated_pnl_estimate_joins_real_record(tmp_path, monkeypatch):
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    monkeypatch.setenv("BACKFILL_FROM", "2026-09-01")
+    simulate(date(2026, 10, 12), date(2026, 10, 12), tmp_path)
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    assert state["estimate"]["check"]["method"] == "pnl" and state["estimate"]["used"] is True
+    h = state["history"]
+    assert h[-1]["date"] == "2026-10-12" and not h[-1].get("estimated") and h[-2].get("estimated")
+    # 이어지는 지점에서 하루 수익률이 튀지 않는다
+    assert abs(h[-1]["daily_ret"]) < 5

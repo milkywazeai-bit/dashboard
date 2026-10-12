@@ -36,7 +36,7 @@ ENC = ROOT / "docs" / "data.enc.json"
 # 늦게 반영되는 거래(정정·취소 등)를 잡기 위해 마지막 동기화일 며칠 전부터 다시 받는다
 RESYNC_DAYS = 3
 # 추정 계산 방식이 바뀌면 올린다 — 저장된 추정을 다음 실행에서 다시 만든다
-ESTIMATE_VERSION = 2
+ESTIMATE_VERSION = 3
 
 log = logging.getLogger("collector")
 
@@ -251,8 +251,13 @@ class Collector:
         return out
 
 
-def build_estimate(col: Collector, txs: list[dict], snap: dict, start: date, end: date, today: date):
-    """start~end 영업일의 총자산을 거래내역과 종가로 추정한다. 오늘 값으로 오차도 잰다."""
+def build_estimate(col: Collector, txs: list[dict], snap: dict, start: date, end: date, today: date,
+                   anchor: dict):
+    """start~end 영업일의 총자산을 추정한다.
+
+    그래프에 쓰는 값은 첫 실제 기록(anchor)에서 하루씩 손익을 거꾸로 빼 나간 값이다
+    (metrics.estimate_by_pnl). 예수금 잔액으로 쌓아 올린 값은 진단용으로만 남긴다.
+    """
     days = [d.isoformat() for d in daterange(start, end) if d.weekday() < 5] + [today.isoformat()]
     current = {}
     for h in snap["holdings"]:
@@ -285,7 +290,13 @@ def build_estimate(col: Collector, txs: list[dict], snap: dict, start: date, end
         "parts": {k: {"estimate": check[k] if check else None, "actual": snap["valuation"][k]}
                   for k in ("cash", "fx_cash", "stock")},
     })
-    return [p for p in points if p["date"] != today.isoformat()], diag
+    pnl_points, pnl_diag = m.estimate_by_pnl(txs, current, days, prices, fx, usd,
+                                             anchor["date"], anchor["total"])
+    diag.update(method="pnl", min_total=pnl_diag["min_total"],
+                negative_qty=pnl_diag["negative_qty"],
+                unpriced=sorted(set(diag["unpriced"]) | set(pnl_diag["unpriced"])),
+                days=len(pnl_points))
+    return pnl_points, diag
 
 
 def daterange(start: date, end: date):
@@ -411,8 +422,9 @@ def run(require_password: bool = False) -> int:
     if tx_from and tx_from < first_real and (est.get("from") != tx_from or not est.get("complete")
                                              or est.get("version") != ESTIMATE_VERSION
                                              or os.getenv("REBUILD_ESTIMATE")):
+        anchor = min(snaps, key=lambda s: s["date"])
         points, diag = build_estimate(col, txs, snap, date.fromisoformat(tx_from),
-                                      date.fromisoformat(first_real) - timedelta(days=1), today)
+                                      date.fromisoformat(first_real) - timedelta(days=1), today, anchor)
         # 조회가 하나라도 실패했거나 외화 잔액이 빠진 거래가 남았으면 다음 실행에서 다시 만든다
         complete = (len(col.warnings) == warns_before
                     and all("frcr_balance" in t for t in txs))

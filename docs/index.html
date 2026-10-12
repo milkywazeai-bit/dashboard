@@ -355,8 +355,15 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
     let note = "";
     const errTxt = chk && chk.error_pct != null ? `${Math.abs(chk.error_pct).toFixed(2)}%` : "";
     if (estPts.length) {
-      note = `점선 구간(${estPts[0].date} ~ ${estPts[estPts.length - 1].date})은 거래내역의 수량·예수금과 일별 종가로 계산한 추정치입니다.`;
-      if (errTxt) note += ` 같은 방법으로 오늘을 계산하면 실제 총자산과 ${errTxt} 차이가 납니다.`;
+      const range = `${estPts[0].date} ~ ${estPts[estPts.length - 1].date}`;
+      if (chk.method === "pnl") {
+        note = `점선 구간(${range})은 첫 실제 기록(${H.find((h) => !h.estimated).date})의 총자산에서 하루씩 거꾸로 ` +
+          `그날의 손익(보유 수량 × 종가 변동, 매매 체결가 대비 손익)과 입출금을 빼서 계산한 추정치입니다. ` +
+          `배당·이자·환전 손익은 반영되지 않아 그만큼 오차가 있습니다.`;
+      } else {
+        note = `점선 구간(${range})은 거래내역의 수량·예수금과 일별 종가로 계산한 추정치입니다.`;
+        if (errTxt) note += ` 같은 방법으로 오늘을 계산하면 실제 총자산과 ${errTxt} 차이가 납니다.`;
+      }
       if (chk.unpriced && chk.unpriced.length) note += ` 시세가 없어 거래단가로 평가한 종목: ${chk.unpriced.join(", ")}.`;
       note = esc(note);
     } else if (chk) {
@@ -369,7 +376,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
       const names = { cash: "원화 예수금", fx_cash: "외화 예수금(원화 환산)", stock: "주식 평가금액" };
       let d = `<details style="margin-top:6px"><summary style="cursor:pointer;text-decoration:underline">추정 진단 보기</summary>`;
       if (chk.parts) {
-        d += `<div style="margin-top:6px">오늘 값 비교 (추정 / 실제)</div><ul style="margin:2px 0;padding-left:18px">` +
+        d += `<div style="margin-top:6px">${chk.method === "pnl" ? "참고: 예수금 잔액으로 쌓아 올린 방식의 오늘 값 비교" : "오늘 값 비교"} (추정 / 실제)</div><ul style="margin:2px 0;padding-left:18px">` +
           Object.entries(chk.parts).map(([k, v]) => `<li>${names[k] || k}: ${v.estimate == null ? "–" : won(v.estimate)} / ${won(v.actual)}</li>`).join("") + "</ul>";
       }
       d += (chk.codes || []).map((c) => `<div style="margin-top:6px"><b>${esc(c.code)}</b> 현재 ${qty(c.current_qty)}주<ul style="margin:2px 0;padding-left:18px">` +

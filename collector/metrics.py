@@ -339,6 +339,66 @@ def estimate_history(txs: list[dict], current_qty: dict[str, float], days: list[
                     "codes": code_breakdown(txs, current_qty, bad)}
 
 
+def estimate_by_pnl(txs: list[dict], current_qty: dict[str, float], days: list[str],
+                    prices: dict[str, dict[str, float]], fx: dict[str, float], fx_now: float,
+                    anchor_date: str, anchor_total: float):
+    """실제 총자산 하나(anchor)에서 출발해 하루씩 거꾸로 그날 손익과 입출금을 빼 나간다.
+
+        V(전날) = V(그날) − 손익(그날) − 순입금(그날)
+        손익 = Σ 전날 보유수량 × (종가 변동, 해외는 원화 환산)
+             + Σ 그날 매매수량 × (종가 − 체결가) − 국내 수수료·세금
+
+    예수금 잔액을 쓰지 않으므로 거래내역의 잔액이 결제일 기준이어도 출렁이지 않고,
+    실제 기록과 끊김 없이 이어진다. 배당·이자는 빠지므로 그만큼은 오차로 남는다.
+    """
+    days = sorted(d for d in days if d <= anchor_date)
+    if not days or days[-1] != anchor_date:
+        days.append(anchor_date)
+    pos, bad = positions_by_day(txs, current_qty, days)
+    flows = flows_by_date(txs, fx_now)
+    trade_px: dict[str, dict[str, float]] = {}
+    for t in txs:
+        if t["code"] and t["price"] and not t["cancelled"]:
+            trade_px.setdefault(t["code"], {})[t["date"]] = t["price"]
+
+    rate = lambda d: ffill(fx, d) or fx_now  # noqa: E731
+    unpriced = set()
+
+    def val(c: str, d: str) -> float:
+        ov = is_overseas_code(c)
+        px = ffill(prices.get(c, {}), d, strict=ov)
+        if px is None:
+            px = ffill(trade_px.get(c, {}), d) or 0.0
+            unpriced.add(c)
+        return px * (rate(d) if ov else 1)
+
+    by_date: dict[str, list[dict]] = {}
+    for t in txs:
+        if qty_delta(t):
+            by_date.setdefault(t["date"], []).append(t)
+    flow_dates, trade_dates = sorted(flows), sorted(by_date)
+
+    pnl: dict[str, float] = {}
+    for prev, d in zip(days, days[1:]):
+        p = sum(q * (val(c, d) - val(c, prev)) for c, q in pos[prev].items())
+        for td in (x for x in trade_dates if prev < x <= d):
+            for t in by_date[td]:
+                c, dq = t["code"], qty_delta(t)
+                ov = is_overseas_code(c)
+                p += dq * (val(c, d) - t["price"] * (rate(d) if ov else 1))
+                if not ov:
+                    p -= t["fee"] + t["tax"]
+        pnl[d] = p
+
+    total = {anchor_date: anchor_total}
+    for prev, d in reversed(list(zip(days, days[1:]))):
+        f = sum(flows[x] for x in flow_dates if prev < x <= d)
+        total[prev] = total[d] - pnl[d] - f
+    points = [{"date": d, "total": total[d], "estimated": True} for d in days if d != anchor_date]
+    return points, {"negative_qty": sorted(bad), "unpriced": sorted(unpriced),
+                    "min_total": min((p["total"] for p in points), default=None)}
+
+
 def code_breakdown(txs: list[dict], current_qty: dict[str, float], codes) -> list[dict]:
     """수량이 맞지 않는 종목의 거래를 유형·적요별로 묶는다. 어떤 거래 유형을 놓쳤는지 보려는 진단용."""
     out = []
@@ -363,6 +423,10 @@ ESTIMATE_MAX_ERROR_PCT = 3.0
 
 
 def estimate_usable(check: dict | None) -> bool:
+    if check and check.get("method") == "pnl":
+        # 실제 총자산에서 거꾸로 이어 붙이므로 오늘 오차 비교는 의미가 없다.
+        # 수량이 맞고 총자산이 끝까지 양수면 쓴다.
+        return not check.get("negative_qty") and (check.get("min_total") or 0) > 0
     if not check or check.get("error_pct") is None:
         return False
     return abs(check["error_pct"]) <= ESTIMATE_MAX_ERROR_PCT and not check.get("negative_qty")
