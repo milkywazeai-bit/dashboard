@@ -80,7 +80,9 @@ tr:hover td { background: var(--surface-2); }
 .tag { font-size: 11px; color: var(--ink-2); border: 1px solid var(--ring); border-radius: 6px; padding: 1px 6px; margin-left: 6px; }
 .muted { color: var(--muted); }
 .banner { background: var(--warn-bg); color: var(--warn-ink); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; }
-.banner ul { margin: 4px 0 0; padding-left: 18px; }
+.banner ul { margin: 6px 0 0; padding-left: 18px; word-break: break-all; }
+.banner summary { cursor: pointer; }
+.banner summary span { text-decoration: underline; font-size: 12px; margin-left: 4px; white-space: nowrap; }
 #lock { max-width: 380px; margin: 12vh auto; text-align: center; }
 #lock form { display: flex; gap: 8px; margin-top: 16px; }
 #lock input { flex: 1; min-width: 0; }
@@ -317,7 +319,10 @@ footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
     // 경고
     const w = S.warnings || [];
     $("banner").classList.toggle("hidden", !w.length);
-    $("banner").innerHTML = w.length ? "<b>마지막 수집에서 일부 조회가 실패했습니다.</b><ul>" + w.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>" : "";
+    $("banner").innerHTML = w.length
+      ? `<details><summary><b>마지막 수집에서 일부 조회 ${w.length}건이 실패했습니다.</b> <span>자세히</span></summary><ul>` +
+        w.map((x) => "<li>" + esc(x.length > 160 ? x.slice(0, 160) + "…" : x) + "</li>").join("") + "</ul></details>"
+      : "";
 
     // KPI
     const prev = H.length > 1 ? H[H.length - 2] : null;

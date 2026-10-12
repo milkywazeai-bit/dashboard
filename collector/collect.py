@@ -43,6 +43,13 @@ _TRANSIENT = {"UNREACHABLE", "TIMEOUT", "RATE_LIMITED"}
 RETRIES = 3
 
 
+def short_error(e: MeritzError) -> str:
+    """화면에 띄울 짧은 사유. 연결 오류의 긴 원문(라이브러리 메시지)은 싣지 않는다."""
+    if e.code in ("UNREACHABLE", "TIMEOUT"):
+        return "서버 연결이 끊겨 받지 못했습니다. 다음 실행에서 다시 받습니다."
+    return str(e).splitlines()[0][:200]
+
+
 def with_retry(fn):
     for i in range(RETRIES):
         try:
@@ -70,7 +77,7 @@ class Collector:
         try:
             res = with_retry(lambda: self.c.call(self.cat.get(key), params or {}))
         except MeritzError as e:
-            self._warn(f"{title or key}: {e}")
+            self._warn(f"{title or key}: {short_error(e)}")
             return None
         if not res["ok"]:
             hint = " (포털에서 이 API 사용 권한을 신청하세요)" if res.get("rsp_cd") == "0760" else ""
@@ -145,7 +152,7 @@ class Collector:
             try:
                 res = with_retry(lambda: paginate(self.c, api, {"from": s, "to": s, "sort": "ASC"}))
             except MeritzError as e:
-                self._warn(f"입출금 내역 {m.iso(s)}: {e}")
+                self._warn(f"입출금 내역 {m.iso(s)}: {short_error(e)}")
                 break                         # 다음 실행에서 이 날부터 다시 받는다
             if res["truncated"]:
                 self._warn(f"입출금 내역 {m.iso(s)}: {res['note']}")
