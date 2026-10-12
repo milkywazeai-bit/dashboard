@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import sys
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -37,6 +38,23 @@ RESYNC_DAYS = 3
 
 log = logging.getLogger("collector")
 
+# 연결이 순간적으로 끊기거나 초당 호출 한도에 걸리면 잠시 뒤 다시 보낸다 (조회 전용이라 안전하다)
+_TRANSIENT = {"UNREACHABLE", "TIMEOUT", "RATE_LIMITED"}
+RETRIES = 3
+
+
+def with_retry(fn):
+    for i in range(RETRIES):
+        try:
+            res = fn()
+        except MeritzError as e:
+            if e.code not in _TRANSIENT or i == RETRIES - 1:
+                raise
+        else:
+            if not (isinstance(res, dict) and res.get("error") in _TRANSIENT) or i == RETRIES - 1:
+                return res
+        time.sleep(2 * (i + 1))
+
 
 class Collector:
     def __init__(self):
@@ -50,7 +68,7 @@ class Collector:
     def call(self, key: str, params: dict | None = None, title: str = ""):
         """한 번 조회해 data 를 돌려준다. 실패하면 경고를 남기고 None."""
         try:
-            res = self.c.call(self.cat.get(key), params or {})
+            res = with_retry(lambda: self.c.call(self.cat.get(key), params or {}))
         except MeritzError as e:
             self._warn(f"{title or key}: {e}")
             return None
@@ -125,7 +143,7 @@ class Collector:
         while day <= end:
             s = m.ymd(day)
             try:
-                res = paginate(self.c, api, {"from": s, "to": s, "sort": "ASC"})
+                res = with_retry(lambda: paginate(self.c, api, {"from": s, "to": s, "sort": "ASC"}))
             except MeritzError as e:
                 self._warn(f"입출금 내역 {m.iso(s)}: {e}")
                 break                         # 다음 실행에서 이 날부터 다시 받는다
@@ -358,6 +376,7 @@ def run(require_password: bool = False) -> int:
         done = col.sync_range(state, start, today, realized_from=min(start, prev_month))
         if done:
             state["tx_synced_until"] = done.isoformat()
+    warns_before = len(col.warnings)
     if any("frcr_balance" not in t for t in state.get("transactions", [])) and state.get("tx_synced_from"):
         # 이전 버전이 받은 내역에는 외화 잔액이 없다 — 추정에 필요해 한 번 다시 받는다
         col.sync_range(state, date.fromisoformat(state["tx_synced_from"]), today)
@@ -377,10 +396,14 @@ def run(require_password: bool = False) -> int:
     first_real = min(s["date"] for s in snaps)
     est = state.get("estimate") or {}
     tx_from = min((t["date"] for t in txs), default=None)
-    if tx_from and tx_from < first_real and (est.get("from") != tx_from or os.getenv("REBUILD_ESTIMATE")):
+    if tx_from and tx_from < first_real and (est.get("from") != tx_from or not est.get("complete")
+                                             or os.getenv("REBUILD_ESTIMATE")):
         points, diag = build_estimate(col, txs, snap, date.fromisoformat(tx_from),
                                       date.fromisoformat(first_real) - timedelta(days=1), today)
-        est = {"from": tx_from, "points": points, "check": diag}
+        # 조회가 하나라도 실패했거나 외화 잔액이 빠진 거래가 남았으면 다음 실행에서 다시 만든다
+        complete = (len(col.warnings) == warns_before
+                    and all("frcr_balance" in t for t in txs))
+        est = {"from": tx_from, "points": points, "check": diag, "complete": complete}
         state["estimate"] = est
     estimated = [p for p in est.get("points", []) if p["date"] < first_real]
 

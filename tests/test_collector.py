@@ -171,3 +171,48 @@ def test_simulated_estimate_before_first_snapshot(tmp_path, monkeypatch):
     assert not any(k in ("market_candles_days", "fx_rates") for k, _ in clients[-1].calls)
     state = json.loads((tmp_path / "data.json").read_text("utf-8"))
     assert [h["date"] for h in state["history"] if not h.get("estimated")] == ["2026-10-12", "2026-10-13"]
+
+
+def test_transient_errors_are_retried_and_incomplete_estimate_rebuilt(tmp_path, monkeypatch):
+    from meritz import MeritzError
+    from tests.fake_api import FakeClient
+
+    monkeypatch.delenv("DASHBOARD_PASSWORD", raising=False)
+    monkeypatch.setenv("BACKFILL_FROM", "2026-09-01")
+    monkeypatch.setattr(collect.time, "sleep", lambda s: None)
+
+    # 일봉 첫 호출이 끊긴다 → 재시도로 성공해야 한다
+    fails = {"market_candles_days": 1, "transactions": 1}
+    orig = FakeClient.call
+
+    def flaky(self, api, params, _retried=False):
+        if fails.get(api["key"]):
+            fails[api["key"]] -= 1
+            raise MeritzError("연결 끊김", code="UNREACHABLE")
+        return orig(self, api, params)
+
+    monkeypatch.setattr(FakeClient, "call", flaky)
+    simulate(date(2026, 10, 12), date(2026, 10, 12), tmp_path)
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    assert state["warnings"] == [] and state["estimate"]["complete"] is True
+
+    # 환율이 계속 실패하면 추정은 미완성으로 남고, 다음 실행에서 다시 만든다
+    always = {"fx_rates"}
+
+    def broken(self, api, params, _retried=False):
+        if api["key"] in always:
+            raise MeritzError("연결 끊김", code="UNREACHABLE")
+        return orig(self, api, params)
+
+    monkeypatch.setattr(FakeClient, "call", broken)
+    monkeypatch.setenv("REBUILD_ESTIMATE", "1")
+    simulate(date(2026, 10, 13), date(2026, 10, 13), tmp_path)
+    monkeypatch.delenv("REBUILD_ESTIMATE")
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    assert state["estimate"]["complete"] is False
+
+    always.clear()
+    clients = simulate(date(2026, 10, 14), date(2026, 10, 14), tmp_path)
+    assert any(k == "fx_rates" for k, _ in clients[-1].calls)
+    state = json.loads((tmp_path / "data.json").read_text("utf-8"))
+    assert state["estimate"]["complete"] is True
