@@ -1,0 +1,63 @@
+name: 계좌 데이터 갱신
+
+on:
+  schedule:
+    - cron: "40 7 * * 1-5"      # 평일 16:40 KST (장 마감 후). GitHub 사정으로 몇 분~수십 분 늦을 수 있습니다
+  workflow_dispatch:             # Actions 탭에서 수동 실행
+  push:
+    branches: [main]
+    paths: ["docs/**"]           # 화면을 고치면 바로 다시 배포
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: account-dashboard
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: 메리츠 Open API 조회
+        env:
+          MERITZ_APP_KEY: ${{ secrets.MERITZ_APP_KEY }}
+          MERITZ_APP_SECRET: ${{ secrets.MERITZ_APP_SECRET }}
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          BACKFILL_DAYS: ${{ vars.BACKFILL_DAYS || '90' }}
+        run: python -m collector.collect --require-password
+      - name: 데이터 커밋
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data.enc.json
+          git diff --cached --quiet || git commit -m "data: $(TZ=Asia/Seoul date +%F) 계좌 데이터 갱신"
+          git push
+
+  deploy:
+    needs: collect
+    if: always() && (needs.collect.result == 'success' || needs.collect.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}       # 방금 커밋한 데이터까지 받는다
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v4
